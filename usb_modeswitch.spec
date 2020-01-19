@@ -1,8 +1,8 @@
 %define source_name	usb-modeswitch
 
 Name:		usb_modeswitch
-Version:	2.4.0
-Release:	5%{?dist}
+Version:	2.5.1
+Release:	1%{?dist}
 Summary:	USB Modeswitch gets mobile broadband cards in operational mode
 Summary(de):	USB Modeswitch aktiviert UMTS-Karten
 Group:		Applications/System
@@ -14,15 +14,14 @@ Source1:	http://www.draisberghof.de/usb_modeswitch/device_reference.txt
 
 # http://www.draisberghof.de/usb_modeswitch/bb/viewtopic.php?f=2&t=2546
 Patch0: rhbz948451-fix-manual-pages.patch
-
+# Submitted upstream (2014-11-24)
+Patch1: device_reference-utf8.patch
 # http://www.draisberghof.de/usb_modeswitch/bb/viewtopic.php?f=2&t=2556
-Patch1: 0001-Fix-crash-on-early-fail.patch
-
-# http://www.draisberghof.de/usb_modeswitch/bb/viewtopic.php?f=2&t=2557
-Patch2: 0001-usb_modeswitch-don-t-return-a-value-from-stack.patch
-
-# http://www.draisberghof.de/usb_modeswitch/bb/viewtopic.php?f=2&t=2560
-Patch3: 0001-Bring-back-the-module-binding.patch
+Patch2: 0001-Fix-crash-on-early-fail.patch
+# http://www.draisberghof.de/usb_modeswitch/bb/viewtopic.php?f=2&t=2732
+Patch3: 0001-usb_modeswitch-fix-a-wrong-comparison.patch
+# http://www.draisberghof.de/usb_modeswitch/bb/viewtopic.php?f=2&t=2733
+Patch4: 0002-usb_modeswitch-count-the-target-devices-from-zero.patch
 
 BuildRequires:	libusbx-devel
 BuildRequires:	systemd
@@ -45,14 +44,13 @@ Vodafone, Option, ZTE und Novatell werden unterstützt.
 
 %prep
 %setup -q -n %{source_name}-%{version}
-%patch0 -p1 -b .manpage
-%patch1 -p1 -b .libusb_exit
-%patch2 -p1 -b .stack
-%patch3 -p1 -b .binding
+cp -f %{SOURCE1} device_reference.txt
 
-# convert device_reference.txt encoding to UTF-8
-iconv --from=ISO-8859-1 --to=UTF-8 %{SOURCE1} >device_reference.txt
-touch -r %{SOURCE1} device_reference.txt
+%patch0 -p1 -b .manpage
+%patch1 -p0 -b .utf8
+%patch2 -p1 -b .libusb_exit
+%patch3 -p1 -b .char_deref
+%patch4 -p1 -b .zero_iter
 
 # Fix the ppc64le build
 cp -f /usr/lib/rpm/redhat/config.guess jim/autosetup/config.guess
@@ -83,6 +81,10 @@ make install-static \
 
 
 %changelog
+* Tue Aug 29 2017 Lubomir Rintel <lrintel@redhat.com> - 2.5.1-1
+- New 2.5.1 release (rh #1483051)
+- Remove the binding patch
+
 * Thu Jul 21 2016 Lubomir Rintel <lkundrak@v3.sk> - 2.4.0-5
 - Bring back the module binding
 

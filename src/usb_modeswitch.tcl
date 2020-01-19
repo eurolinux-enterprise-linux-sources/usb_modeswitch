@@ -9,8 +9,8 @@
 # the mode switching program with the matching parameter
 # file from /usr/share/usb_modeswitch
 #
-# Part of usb-modeswitch-2.4.0 package
-# (C) Josua Dietze 2009-2016
+# Part of usb-modeswitch-2.5.1 package
+# (C) Josua Dietze 2009-2017
 
 set arg0 [lindex $argv 0]
 if [regexp {\.tcl$} $arg0] {
@@ -27,9 +27,12 @@ if [regexp {\.tcl$} $arg0] {
 set flags(logging) 1
 set flags(noswitching) 0
 set flags(stordelay) 0
+set flags(nombim) 0
+
 set flags(logwrite) 0
 # also settable in device config files
 set flags(nombim) 0
+set flags(althuawei) 0
 
 # Execution starts at file bottom
 
@@ -39,6 +42,11 @@ global scsi usb config match device flags setup devdir loginit
 
 set flags(config) ""
 Log "[ParseGlobalConfig]"
+
+if {$flags(stordelay) > 0} {
+	SetStorageDelay $flags(stordelay)
+}
+
 
 # The facility to add a symbolic link pointing to the
 # ttyUSB port which provides interrupt transfer, i.e.
@@ -55,74 +63,47 @@ if {[lindex $argv 0] == "--symlink-name"} {
 	SafeExit
 }
 
-if {[lindex $argv 0] == "--switch-systemd"} {
-	set argList [split [lindex $argv 1] _]
-	Log "\nStarted via systemd"
-} else {
-	if {[lindex $argv 0] == "--switch-upstart"} {
-		Log "\nStarted via upstart"
+# arg0: the bus id for the device (udev: %b), now deprecated
+# arg1: the "kernel name" for the device (udev: %k)
+#
+# From version 2.5.0 upward %b is removed by udev sh script
+# which can handle old and new udev params ('%b/%k' and '%k')
+
+Log "Raw parameters: $argv"
+set device "noname"
+if {[lindex $argv 0] == "--switch-mode"} {
+	if [string length [lindex $argv 1]] {
+		set arg1 [lindex $argv 1]
+	} else {
+		Log "\nNo data from udev. Exit"
+		SafeExit
 	}
-	set argList [split [lindex $argv 1] /]
-}
-if [string length [lindex $argList 1]] {
-	set device [lindex $argList 1]
 } else {
-	set device "noname"
-}
-if {$flags(stordelay) > 0} {
-	SetStorageDelay $flags(stordelay)
-}
-
-Log "Raw args from udev: [lindex $argv 1]\n"
-
-if {$device == "noname"} {
-	Log "\nNo data from udev. Exit"
-	SafeExit
-}
-
-if {![regexp -- {--switch-} [lindex $argv 0]]} {
 	Log "\nNo command given. Exit"
 	SafeExit
 }
 
+if {![regexp {(.*?):.*$} $arg1 d device]} {
+	if {![regexp {([0-9]+-[0-9]+\.?[0-9]*.*)} $arg1 d device]} {
+		Log "Could not determine device dir from udev values! Exit"
+		SafeExit
+	}
+}
+set flags(logwrite) 1
+
 set setup(dbdir) /usr/share/usb_modeswitch
 set setup(dbdir_etc) /etc/usb_modeswitch.d
-
-
 if {![file exists $setup(dbdir)] && ![file exists $setup(dbdir_etc)]} {
 	Log "\nError: no config database found in /usr/share or /etc. Exit"
 	SafeExit
 }
-set bindir /usr/sbin
 
+set bindir /usr/sbin
 set devList1 {}
 set devList2 {}
-
-
-# arg 0: the bus id for the device (udev: %b), often ommitted
-# arg 1: the "kernel name" for the device (udev: %k)
-#
-# Used to determine the top directory for the device in sysfs
-
 set ifChk 0
-if {[string length [lindex $argList 0]] == 0} {
-	if {[string length [lindex $argList 1]] == 0} {
-		Log "No device number values given from udev! Exit"
-		SafeExit
-	} else {
-		if {![regexp {(.*?):} [lindex $argList 1] d dev_top]} {
-			if {![regexp {([0-9]+-[0-9]+\.?[0-9]*.*)} [lindex $argList 1] d dev_top]} {
-				Log "Could not determine device dir from udev values! Exit"
-				SafeExit
-			}
-		}
-	}
-} else {
-	set dev_top [lindex $argList 0]
-	regexp {(.*?):} $dev_top d dev_top
-}
 
-set devdir /sys/bus/usb/devices/$dev_top
+set devdir /sys/bus/usb/devices/$device
 if {![file isdirectory $devdir]} {
 	Log "Top device directory not found ($devdir)! Exit"
 	SafeExit
@@ -140,8 +121,6 @@ Log " Interface 0 class is $config(class)."
 
 set ifdir [file tail [IfDir $iface $devdir]]
 regexp {:([0-9]+\.[0-9]+)$} $ifdir d iface
-
-set flags(logwrite) 1
 
 # Mapping of the short string identifiers (in the config
 # file names) to the long name used here
@@ -228,13 +207,10 @@ if $scsiNeeded {
 	Log "SCSI attributes not needed, move on"
 }
 
-# General wait - some devices need this
-after 500
-
 # Now check for a matching config file. Matching is done
 # by MatchDevice
 
-set report {}
+set report ""
 foreach mconfig $configList {
 
 	# skipping installer leftovers like "*.rpmnew"
@@ -243,74 +219,93 @@ foreach mconfig $configList {
 	Log "Check config: $mconfig"
 	if [MatchDevice $mconfig] {
 		Log "! matched. Read config data"
-#		set flags(config) $mconfig
-		if [string length $usb(busnum)] {
-			set busParam "-b [string trimleft $usb(busnum) 0]"
-			set devParam "-g [string trimleft $usb(devnum) 0]"
-		} else {
-			set busParam ""
-			set devParam ""
-		}
 		set flags(config) [ConfigGet conffile $mconfig]
-		ParseDeviceConfig $flags(config)
-		if [regexp -nocase {/[0-9a-f]+:#} $flags(config)] {
-			Log "Note: Using generic manufacturer configuration for \"$flags(os)\""
-		}
-		if $flags(nombim) {
-			set config(NoMBIMCheck) 1
-		}
-		if {$config(WaitBefore) != ""} {
-			Log "Delay time of $config(WaitBefore) seconds"
-			append config(WaitBefore) "000"
-			after $config(WaitBefore)
-			Log " wait is over, start mode switch"
-		}
-		if {$config(NoMBIMCheck)==0 && $usb(bNumConfigurations) > 1} {
-			Log "Device may have an MBIM configuration, check driver ..."
-			if [CheckMBIM] {
-				Log " driver for MBIM devices is available"
-				Log "Find MBIM configuration number ..."
-				if [catch {set cfgno [exec /usr/sbin/usb_modeswitch -j -Q $busParam $devParam -v $usb(idVendor) -p $usb(idProduct)]} err] {
-					Log "Error when trying to find MBIM configuration, switch to legacy modem mode"
-				} else {
-					set cfgno [string trim $cfgno]
-					if {$cfgno > 0} {
-						set config(Configuration) $cfgno
-						set flags(config) "Configuration=$cfgno"
-					} else {
-						Log " No MBIM configuration found, switch to legacy modem mode"
-					}
-				}
-			} else {
-				Log " no MBIM driver found, switch to legacy modem mode"
-			}
-		}
-		if [PantechAutoSwitch] {
-			Log "Waiting for Pantech auto-modeswitch"
-			set report "ok:busdev"
-			break
-		}
-		if {$config(Configuration) == 0} {
-			Log "Config file contains dummy method, do nothing. Exit"
-			SafeExit
-		}
-		UnbindDriver $devdir $ifdir
-		# Now we are actually switching
-		if $flags(logging) {
-			Log "Command to be run:\nusb_modeswitch -W -D $configParam $busParam $devParam -v $usb(idVendor) -p $usb(idProduct) -f \$flags(config)"
-			set report [exec /usr/sbin/usb_modeswitch -W -D $configParam $busParam $devParam -v $usb(idVendor) -p $usb(idProduct) -f "$flags(config)" 2>@1]
-			Log "\nVerbose debug output of usb_modeswitch and libusb follows"
-			Log "(Note that some USB errors are to be expected in the process)"
-			Log "--------------------------------"
-			Log $report
-			Log "--------------------------------"
-			Log "(end of usb_modeswitch output)\n"
-		} else {
-			set report [exec /usr/sbin/usb_modeswitch -Q -D $configParam $busParam $devParam -v $usb(idVendor) -p $usb(idProduct) -f "$flags(config)" 2>@1]
-		}
 		break
 	} else {
 		Log "* no match, don't use this config"
+	}
+}
+if {$flags(config) == ""} {
+	Log "No matching config file found. Exit"
+	SafeExit
+}
+
+ParseDeviceConfig $flags(config)
+
+if [regexp -nocase {0x([0-9a-f]+)} $config(TargetClass) d tc] {
+	if {$tc == $config(class)} {
+		Log "Class of interface 0 matches target. Do nothing"
+		set report "ok:busdev"
+	}
+}
+
+if [string length $usb(busnum)] {
+	set busParam "-b [string trimleft $usb(busnum) 0]"
+	set devParam "-g [string trimleft $usb(devnum) 0]"
+} else {
+	set busParam ""
+	set devParam ""
+}
+if [regexp -nocase $flags(os) $flags(config)] {
+	Log "Note: Using generic manufacturer configuration for \"$flags(os)\""
+}
+if $flags(althuawei) {
+	regsub {HuaweiNewMode} $flags(config) {HuaweiAltMode} flags(config)
+	Log "Alternative Huawei mode set globally, modify config"
+}
+if $flags(nombim) {
+	set config(NoMBIMCheck) 1
+}
+if {$config(NoMBIMCheck)==0 && $usb(bNumConfigurations) > 1} {
+	Log "Device may have an MBIM configuration, check driver ..."
+	if [CheckMBIM] {
+		Log " driver for MBIM devices is available"
+		Log "Find MBIM configuration number ..."
+		if [catch {set cfgno [exec /usr/sbin/usb_modeswitch -j -Q $busParam $devParam -v $usb(idVendor) -p $usb(idProduct)]} err] {
+			Log "Error when trying to find MBIM configuration, switch to legacy modem mode"
+		} else {
+			set cfgno [string trim $cfgno]
+			if {$cfgno > 0} {
+				set config(Configuration) $cfgno
+				set flags(config) "Configuration=$cfgno"
+			} else {
+				Log " No MBIM configuration found, switch to legacy modem mode"
+			}
+		}
+	} else {
+		Log " no MBIM driver found, switch to legacy modem mode"
+	}
+}
+if [PantechAutoSwitch] {
+	Log "Waiting for Pantech auto-modeswitch"
+	set report "ok:busdev"
+}
+if {$config(Configuration) == 0} {
+	Log "Config file contains dummy method, do nothing. Exit"
+	SafeExit
+}
+# General wait - some devices need this
+after 500
+
+if {$config(WaitBefore) != ""} {
+	Log "Delay time of $config(WaitBefore) seconds"
+	append config(WaitBefore) "000"
+	after $config(WaitBefore)
+}
+
+if {$report == ""} {
+	# Now we are actually switching
+	if $flags(logging) {
+		Log "Command line:\nusb_modeswitch -W -D $configParam $busParam $devParam -v $usb(idVendor) -p $usb(idProduct) -f \$flags(config)"
+		catch {set report [exec /usr/sbin/usb_modeswitch -W -D $configParam $busParam $devParam -v $usb(idVendor) -p $usb(idProduct) -f "$flags(config)" 2>@1]} report
+		Log "\nVerbose debug output of usb_modeswitch and libusb follows"
+		Log "(Note that some USB errors are to be expected in the process)"
+		Log "--------------------------------"
+		Log $report
+		Log "--------------------------------"
+		Log "(end of usb_modeswitch output)\n"
+	} else {
+		catch {set report [exec /usr/sbin/usb_modeswitch -Q -D $configParam $busParam $devParam -v $usb(idVendor) -p $usb(idProduct) -f "$flags(config)" 2>@1]} report
 	}
 }
 
@@ -521,8 +516,6 @@ while {![eof $rc]} {
 	if [regexp {DisableMBIMGlobal\s*=\s*([^\s]+)} $line d val] {
 		if [regexp -nocase {1|yes|true} $val] {
 			set flags(nombim) 1
-		} else {
-			set flags(nombim) 0
 		}
 	}
 	if [regexp {DisableSwitching\s*=\s*([^\s]+)} $line d val] {
@@ -531,15 +524,18 @@ while {![eof $rc]} {
 		}
 	}
 	if [regexp {EnableLogging\s*=\s*([^\s]+)} $line d val] {
-		if [regexp -nocase {1|yes|true} $val] {
-			set flags(logging) 1
-		} else {
+		if [regexp -nocase {0|no|false} $val] {
 			set flags(logging) 0
 		}
 	}
 	if [regexp {SetStorageDelay\s*=\s*([^\s]+)} $line d val] {
 		if [regexp {\d+} $val] {
 			set flags(stordelay) $val
+		}
+	}
+	if [regexp {HuaweiAltModeGlobal\s*=\s*([^\s]+)} $line d val] {
+		if [regexp -nocase {1|yes|true} $val] {
+			set flags(althuawei) 1
 		}
 	}
 
@@ -808,7 +804,7 @@ Log "Check success of mode switch for max. $config(CheckSuccess) seconds ..."
 
 set expected 1
 for {set i 1} {$i <= $config(CheckSuccess)} {incr i} {
-	after 1000
+	after 1000 
 	if {![file isdirectory $devdir]} {
 		Log " Wait for device file system ($i sec.) ..."
 		continue
@@ -826,19 +822,19 @@ for {set i 1} {$i <= $config(CheckSuccess)} {incr i} {
 		if {$usb(bConfigurationValue) != $config(Configuration)} {continue}
 	}
 	if [string length $config(TargetClass)] {
-		if {![regexp $usb($ifdir/bInterfaceClass) $config(TargetClass)]} {
+		if {![regexp -nocase $usb($ifdir/bInterfaceClass) $config(TargetClass)]} {
 			if {$config(class) != $usb($ifdir/bInterfaceClass} {
 				set expected 0
 			} else {continue}
 		}
 	}
-	if {![regexp $usb(idVendor) $config(TargetVendor)]} {
-		if {![regexp $usb(idVendor) $config(vendor)]} {
+	if {![regexp -nocase $usb(idVendor) $config(TargetVendor)]} {
+		if {![regexp -nocase $usb(idVendor) $config(vendor)]} {
 			set expected 0
 		} else {continue}
 	}
-	if {![regexp $usb(idProduct) $config(TargetProduct)]} {
-		if {![regexp $usb(idProduct) $config(product)]} {
+	if {![regexp -nocase $usb(idProduct) $config(TargetProduct)]} {
+		if {![regexp -nocase $usb(idProduct) $config(product)]} {
 			set expected 0
 		} else {continue}
 	}
@@ -849,8 +845,12 @@ for {set i 1} {$i <= $config(CheckSuccess)} {incr i} {
 		if [regexp -nocase {/[0-9a-f]+:#} $flags(config)] {
 			Log " idProduct has changed after generic mode-switch, assume success"
 		} else {
-			Log " Attributes are different but target values are unexpected:"
-			LogAttributes
+			if [regexp {HuaweiAltMode} $flags(config)] {
+				Log " Alternative target attributes found, assume success"
+			} else {
+				Log " Attributes are different but target values are unexpected:"
+				LogAttributes
+			}
 		}
 	}
 	break
@@ -973,16 +973,6 @@ if {$config(PantechMode) == 1} {
 		return 1
 	}
 } else {return 0}
-
-}
-
-proc UnbindDriver {devdir ifdir} {
-
-set att $devdir/$ifdir/driver/unbind
-if [file exists $att] {
-	Log "Unbinding driver"
-	exec echo -n "$ifdir" > $att
-}
 
 }
 

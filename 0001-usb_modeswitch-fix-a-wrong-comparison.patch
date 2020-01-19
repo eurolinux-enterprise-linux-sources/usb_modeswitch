@@ -1,0 +1,26 @@
+From bcb5b8702adbf568598988fccf256586b5788fcb Mon Sep 17 00:00:00 2001
+From: Lubomir Rintel <lkundrak@v3.sk>
+Date: Fri, 18 Aug 2017 10:37:15 +0200
+Subject: [PATCH 1/2] usb_modeswitch: fix a wrong comparison
+
+The char pointer should be dereferences when checking the string is empty.
+---
+ usb_modeswitch.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/usb_modeswitch.c b/usb_modeswitch.c
+index b2b930b..6948a84 100644
+--- a/usb_modeswitch.c
++++ b/usb_modeswitch.c
+@@ -1707,7 +1707,7 @@ struct libusb_device* search_devices( int *numFound, int vendor, char* productLi
+ 	*numFound = 0;
+ 
+ 	/* Sanity check */
+-	if (!vendor || productList == '\0')
++	if (!vendor || *productList == '\0')
+ 		return NULL;
+ 
+ 	listcopy = malloc(strlen(productList)+1);
+-- 
+2.13.0
+
