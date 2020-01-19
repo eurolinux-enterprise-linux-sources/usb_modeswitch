@@ -2,7 +2,7 @@
 
 Name:		usb_modeswitch
 Version:	1.2.7
-Release:	3%{?dist}
+Release:	5%{?dist}
 Summary:	USB Modeswitch gets mobile broadband cards in operational mode
 Summary(de):	USB Modeswitch aktiviert UMTS-Karten
 Group:		Applications/System
@@ -71,6 +71,12 @@ install -p -m 755 usb_modeswitch.sh $RPM_BUILD_ROOT%{_prefix}/lib/udev/usb_modes
 
 
 %changelog
+* Fri Jan 24 2014 Daniel Mach <dmach@redhat.com> - 1.2.7-5
+- Mass rebuild 2014-01-24
+
+* Fri Dec 27 2013 Daniel Mach <dmach@redhat.com> - 1.2.7-4
+- Mass rebuild 2013-12-27
+
 * Wed Aug 28 2013 Thomas Haller <thaller@redhat.com> 1.2.7-3
 - Add manual page for usb_modeswitch_dispatcher and fix errors in
   manual page of usb_modeswitch (rhbz#948451, rhbz#884203).
