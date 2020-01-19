@@ -1,0 +1,29 @@
+From 73001792b29f080fcabc57f30d6030bedb2a24b0 Mon Sep 17 00:00:00 2001
+From: Lubomir Rintel <lkundrak@v3.sk>
+Date: Wed, 20 Jul 2016 21:14:10 +0200
+Subject: [PATCH] Fix crash on early fail
+
+Don't uninitialize libusb if it has not been initialized yet.
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1358472
+---
+ usb_modeswitch.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/usb_modeswitch.c b/usb_modeswitch.c
+index cbb8c28..f9c8b2e 100644
+--- a/usb_modeswitch.c
++++ b/usb_modeswitch.c
+@@ -2021,7 +2021,8 @@ void close_all()
+ 		libusb_close(devh);
+ 	// libusb_exit will crash on Raspbian 7, crude protection
+ #ifndef __ARMEL__
+-	libusb_exit(NULL);
++	if (ctx)
++		libusb_exit(NULL);
+ #endif
+ 	if (sysmode)
+ 		closelog();
+-- 
+2.7.4
+

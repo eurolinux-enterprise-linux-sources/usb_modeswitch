@@ -1,23 +1,38 @@
 %define source_name	usb-modeswitch
 
 Name:		usb_modeswitch
-Version:	1.2.7
-Release:	6%{?dist}
+Version:	2.4.0
+Release:	5%{?dist}
 Summary:	USB Modeswitch gets mobile broadband cards in operational mode
 Summary(de):	USB Modeswitch aktiviert UMTS-Karten
 Group:		Applications/System
 License:	GPLv2+
 URL:		http://www.draisberghof.de/usb_modeswitch/
+
 Source0:	http://www.draisberghof.de/%{name}/%{source_name}-%{version}.tar.bz2
 Source1:	http://www.draisberghof.de/usb_modeswitch/device_reference.txt
-Patch0:		rhbz948451-fix-manual-pages.patch
+
+# http://www.draisberghof.de/usb_modeswitch/bb/viewtopic.php?f=2&t=2546
+Patch0: rhbz948451-fix-manual-pages.patch
+
+# http://www.draisberghof.de/usb_modeswitch/bb/viewtopic.php?f=2&t=2556
+Patch1: 0001-Fix-crash-on-early-fail.patch
+
+# http://www.draisberghof.de/usb_modeswitch/bb/viewtopic.php?f=2&t=2557
+Patch2: 0001-usb_modeswitch-don-t-return-a-value-from-stack.patch
+
+# http://www.draisberghof.de/usb_modeswitch/bb/viewtopic.php?f=2&t=2560
+Patch3: 0001-Bring-back-the-module-binding.patch
+
+BuildRequires:	libusbx-devel
+BuildRequires:	systemd
 Requires:	usb_modeswitch-data >= 20121109
-BuildRequires:	libusb-devel
+Requires:	systemd
 
 %description
 USB Modeswitch brings up your datacard into operational mode. When plugged
 in they identify themselves as cdrom and present some non-Linux compatible
-installation files. This tool deactivates this cdrom-devices and enables
+installation files. This tool deactivates this cdrom-device and enables
 the real communication device. It supports most devices built and
 sold by Huawei, T-Mobile, Vodafone, Option, ZTE, Novatel.
 
@@ -30,51 +45,60 @@ Vodafone, Option, ZTE und Novatell werden unterstützt.
 
 %prep
 %setup -q -n %{source_name}-%{version}
-cp -f %{SOURCE1} device_reference.txt
-%patch0 -p1 -b .fix-manual-pages
-
-# update config.guess for aarch64 support
-cp /usr/lib/rpm/redhat/config.{guess,sub} .
-cp /usr/lib/rpm/redhat/config.{guess,sub} jim/autosetup/
+%patch0 -p1 -b .manpage
+%patch1 -p1 -b .libusb_exit
+%patch2 -p1 -b .stack
+%patch3 -p1 -b .binding
 
 # convert device_reference.txt encoding to UTF-8
-iconv --from=ISO-8859-1 --to=UTF-8 device_reference.txt > device_reference.txt.new && \
-touch -r device_reference.txt device_reference.txt.new && \
-chmod 644 device_reference.txt && \
-mv device_reference.txt.new device_reference.txt
+iconv --from=ISO-8859-1 --to=UTF-8 %{SOURCE1} >device_reference.txt
+touch -r %{SOURCE1} device_reference.txt
+
+# Fix the ppc64le build
+cp -f /usr/lib/rpm/redhat/config.guess jim/autosetup/config.guess
+cp -f /usr/lib/rpm/redhat/config.sub jim/autosetup/config.sub
+
 
 %build
 CFLAGS="$RPM_OPT_FLAGS" make %{?_smp_mflags} static
 
 
 %install
-rm -rf $RPM_BUILD_ROOT
-mkdir -p $RPM_BUILD_ROOT%{_prefix}/lib/udev
-mkdir -p $RPM_BUILD_ROOT%{_sbindir}
-mkdir -p $RPM_BUILD_ROOT%{_mandir}/man1
-mkdir -p $RPM_BUILD_ROOT%{_sysconfdir}
-
-install -p -m 755 usb_modeswitch $RPM_BUILD_ROOT%{_sbindir}/
-install -p -m 755 usb_modeswitch_dispatcher $RPM_BUILD_ROOT%{_sbindir}/usb_modeswitch_dispatcher
-install -p -m 644 usb_modeswitch.conf $RPM_BUILD_ROOT%{_sysconfdir}/
-gzip -9c usb_modeswitch.1 > usb_modeswitch.1.gz && install -m 644 usb_modeswitch.1.gz $RPM_BUILD_ROOT%{_datadir}/man/man1
-gzip -9c usb_modeswitch_dispatcher.1 > usb_modeswitch_dispatcher.1.gz && install -m 644 usb_modeswitch_dispatcher.1.gz $RPM_BUILD_ROOT%{_datadir}/man/man1
-install -p -m 755 usb_modeswitch.sh $RPM_BUILD_ROOT%{_prefix}/lib/udev/usb_modeswitch
-
+mkdir -p $RPM_BUILD_ROOT%{_unitdir}
+make install-static \
+	DESTDIR=$RPM_BUILD_ROOT \
+	SYSDIR=$RPM_BUILD_ROOT%{_unitdir} \
+	UDEVDIR=$RPM_BUILD_ROOT%{_prefix}/lib/udev
 
 
 %files
-%defattr(-,root,root,-)
 %{_sbindir}/usb_modeswitch
 %{_sbindir}/usb_modeswitch_dispatcher
 %{_mandir}/man1/usb_modeswitch.1.gz
 %{_mandir}/man1/usb_modeswitch_dispatcher.1.gz
 %{_prefix}/lib/udev/usb_modeswitch
+%{_unitdir}/usb_modeswitch@.service
 %config(noreplace) %{_sysconfdir}/usb_modeswitch.conf
 %doc COPYING README ChangeLog device_reference.txt 
 
 
 %changelog
+* Thu Jul 21 2016 Lubomir Rintel <lkundrak@v3.sk> - 2.4.0-5
+- Bring back the module binding
+
+* Thu Jul 21 2016 Lubomir Rintel <lkundrak@v3.sk> - 2.4.0-4
+- Actually apply the patch for previous issue
+
+* Thu Jul 21 2016 Lubomir Rintel <lkundrak@v3.sk> - 2.4.0-3
+- Fix undefined behavior in config parser (rh #1352055)
+
+* Wed Jul 20 2016 Lubomir Rintel <lkundrak@v3.sk> - 2.4.0-2
+- Add the previously omitted systemd service file (rh #1352055)
+- Fix crash with invalid arguments (rh #1358472)
+
+* Wed Jun 22 2016 Lubomir Rintel <lkundrak@v3.sk> - 2.4.0-1
+- New 2.4.0 release
+
 * Fri Jul 11 2014 Dan Winship <danw@redhat.com> - 1.2.7-6
 - Fix build on aarch64 (#1061556)
 
