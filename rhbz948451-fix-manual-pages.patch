@@ -1,0 +1,99 @@
+diff -up usb-modeswitch-1.2.7/usb_modeswitch.1.fix-manual-pages usb-modeswitch-1.2.7/usb_modeswitch.1
+--- usb-modeswitch-1.2.7/usb_modeswitch.1.fix-manual-pages	2013-08-20 12:07:24.292188457 +0200
++++ usb-modeswitch-1.2.7/usb_modeswitch.1	2013-08-20 12:30:41.606556395 +0200
+@@ -48,10 +48,12 @@ Product ID to look for (mandatory)
+ Target vendor ID. When given will be searched for and detected initially
+ for information purposes. If success checking (option \-s) is active,
+ providing target IDs (vendor/product) or target class is recommended
++.IP "\fB-j\fP \fB\-\-find-mbim\fP         " 10
++Return configuration number with MBIM interface and exit.
+ .IP "\fB-P\fP \fB\-\-target-product NUM\fP         " 10
+ Target product ID
+-.IP "\fB-b\fP \fB\-\-busnum NUM\fP         " 10
+-.IP "\fB-g\fP \fB\-\-devnum NUM\fP         " 10
++.IP "\fB-b\fP \fB\-\-bus-num NUM\fP         " 10
++.IP "\fB-g\fP \fB\-\-device-num NUM\fP         " 10
+ If bus and device number are provided, the handling of a specific device on
+ a specific USB port is guaranteed, in contrast to using only the USB ID. This
+ is important if there are multiple similar devices on a system
+@@ -110,7 +112,7 @@ Send a special control message used by P
+ .IP "\fB-Z\fP \fB\-\-blackberry-mode\fP         " 10
+ Send a special control message used by Blackberry devices
+ .IP "\fB-O\fP \fB\-\-sony-mode\fP         " 10
+-Apply a special sequence used by Sony Ericsson devices. Implies option \--success
++Apply a special sequence used by Sony Ericsson devices. Implies option \--check-success
+ .IP "\fB-L\fP \fB\-\-cisco-mode\fP         " 10
+ Send a sequence of bulk messages used by Cisco devices
+ .IP "\fB-R\fP \fB\-\-reset-usb\fP         " 10
+@@ -119,7 +121,7 @@ method or stand alone. It is always done
+ interactions.
+ Few devices need it to complete the switching; apart from that it may be
+ useful during testing
+-.IP "\fB-c\fP \fB\-\-config FILENAME\fP         " 10
++.IP "\fB-c\fP \fB\-\-config-file FILENAME\fP         " 10
+ Use a specific config file. If any ID or switching options are given as
+ command line parameters, this option is ignored.
+ In that case all mandatory parameters have to be provided on
+@@ -138,7 +140,7 @@ Print all settings before running and sh
+ Changes the behaviour of the program slightly. A success message including the
+ effective target device ID is put out and a syslog notice is issued. Mainly for
+ integration with a wrapper script
+-.IP "\fB-s\fP \fB\-\-success NUM\fP         " 10
++.IP "\fB-s\fP \fB\-\-check-success NUM\fP         " 10
+ After switching, keep checking for the result up to max. NUM seconds. If target IDs
+ or target class were provided, their appearance indicates certain success. Otherwise
+ the disconnection of the original device is rated as likely proof
+diff -up usb-modeswitch-1.2.7/usb_modeswitch.c.fix-manual-pages usb-modeswitch-1.2.7/usb_modeswitch.c
+--- usb-modeswitch-1.2.7/usb_modeswitch.c.fix-manual-pages	2013-08-20 12:12:10.752953754 +0200
++++ usb-modeswitch-1.2.7/usb_modeswitch.c	2013-08-20 12:37:27.415242925 +0200
+@@ -1968,11 +1968,12 @@ void printHelp()
+ 	" -V, --target-vendor NUM       target mode vendor ID (optional)\n"
+ 	" -P, --target-product NUM      target mode product ID (optional)\n"
+ 	" -C, --target-class NUM        target mode device class (optional)\n"
+-	" -b, --busnum NUM              system bus number of device (for hard ID)\n"
+-	" -g, --devnum NUM              system device number (for hard ID)\n"
++	" -b, --bus-num NUM             system bus number of device (for hard ID)\n"
++	" -g, --device-num NUM          system device number (for hard ID)\n"
+ 	" -m, --message-endpoint NUM    direct the message transfer there (optional)\n"
+ 	" -M, --message-content <msg>   message to send (hex number as string)\n"
+-	" -2 <msg>, -3 <msg>            additional messages to send (-n recommended)\n"
++	" -2, --message-content2 <msg>  additional messages to send (-n recommended)\n"
++	" -3, --message-content3 <msg>  additional messages to send (-n recommended)\n"
+ 	" -n, --need-response           read response to the message transfer (CSW)\n"
+ 	" -r, --response-endpoint NUM   read response from there (optional)\n"
+ 	" -d, --detach-only             detach the active driver, no further action\n"
+@@ -1989,10 +1990,11 @@ void printHelp()
+ 	" -Z, --blackberry-mode         apply a special procedure\n"
+ 	" -F, --pantech-mode            apply a special procedure\n"
+ 	" -R, --reset-usb               reset the device after all other actions\n"
++	" -w, --release-delay <seconds> delay releasing the interface\n"
+ 	" -Q, --quiet                   don't show progress or error messages\n"
+ 	" -W, --verbose                 print all settings and debug output\n"
+ 	" -D, --sysmode                 specific result and syslog message\n"
+-	" -s, --success <seconds>       switching result check with timeout\n"
++	" -s, --check-success <seconds> switching result check with timeout\n"
+ 	" -I, --no-inquire              do not get SCSI attributes (default on)\n\n"
+ 	" -c, --config-file <filename>  load long configuration from file\n\n"
+ 	" -t, --stdinput                read long configuration from stdin\n\n"
+diff -up usb-modeswitch-1.2.7/usb_modeswitch_dispatcher.1.fix-manual-pages usb-modeswitch-1.2.7/usb_modeswitch_dispatcher.1
+--- usb-modeswitch-1.2.7/usb_modeswitch_dispatcher.1.fix-manual-pages	2013-08-20 11:59:15.467713141 +0200
++++ usb-modeswitch-1.2.7/usb_modeswitch_dispatcher.1	2013-08-20 12:57:51.913947292 +0200
+@@ -0,0 +1,18 @@
++.TH "USB_MODESWITCH_DISPATCHER" "1"
++.SH "NAME"
++usb_modeswitch_dispatcher - dispatcher not intended for direct invocation.
++.SH "SYNOPSIS"
++.PP
++\fBusb_modeswitch_dispatcher\fR
++.SH "DESCRIPTION"
++.PP
++usb_modeswitch_dispatcher is doing additional device checking and
++using the usb_modeswitch binary to switch with the selected device config file.
++If no drivers are taking care of the device after the mode switch, the dispatcher
++will try to load and bind the "option" serial driver, in order to make the device
++usable.
++.PP
++This program is called by udev and is not supposed to be called directly
++by the user.
++.SH SEE ALSO
++.BR usb_modeswitch(1).
